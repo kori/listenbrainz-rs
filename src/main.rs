@@ -38,7 +38,6 @@ pub enum Payload {
 
 #[derive(Serialize, Deserialize)]
 pub enum Submission {
-    #[serde(flatten)]
     Single {
         listen_type: String,
         payload: Vec<Payload>,
