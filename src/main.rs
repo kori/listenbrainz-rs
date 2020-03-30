@@ -4,14 +4,12 @@ extern crate serde;
 extern crate serde_json;
 
 use serde::{Deserialize, Serialize};
-use serde_derive;
-use serde_json as json;
+use serde_json::Value;
 
-// use std::collections::HashMap;
 use std::time::SystemTime;
 
 // source: https://listenbrainz.readthedocs.io/en/latest/dev/api.html#constants
-
+//
 // Maximum overall listen size in bytes, to prevent egregious spamming.
 pub const MAX_LISTEN_SIZE: u16 = 10240;
 // The maximum number of listens returned in a single GET request.
@@ -26,26 +24,24 @@ pub const MAX_TAG_SIZE: u8 = 64;
 pub const API_ROOT_URL: &str = "https://api.listenbrainz.org";
 
 #[derive(Serialize, Deserialize)]
-pub enum Payload {
-    Single {
-        listened_at: u64,
-        track_metadata: Track,
-    },
-    PlayingNow {
-        track_metadata: Track,
-    },
+pub struct Payload {
+    #[serde(skip_serializing_if = "Value::is_null")]
+    listened_at: Value,
+    track_metadata: Track,
 }
 
 #[derive(Serialize, Deserialize)]
-pub enum Submission {
-    Single {
-        listen_type: String,
-        payload: Vec<Payload>,
-    },
-    PlayingNow {
-        listen_type: String,
-        payload: Payload,
-    },
+#[serde(tag = "listen_type")]
+pub enum Listen {
+    #[serde(rename = "single")]
+    Single { payload: Vec<Payload> },
+    #[serde(rename = "playing_now")]
+    PlayingNow { payload: Payload },
+}
+
+pub enum SubmissionType {
+    Single,
+    PlayingNow,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -56,11 +52,6 @@ pub struct Track {
     title: String,
     #[serde(rename = "release_name")]
     album: String,
-}
-
-pub enum SubmissionType {
-    Single,
-    PlayingNow,
 }
 
 // get current unix timestamp
@@ -76,29 +67,36 @@ fn unix_timestamp() -> u64 {
 // half the track or 4 minutes of the track, whichever is lower. If the
 // user hasn’t listened to 4 minutes or half the track, it doesn’t fully
 // count as a listen and should not be submitted.
-fn get_submission_time(length: u64) -> u64 {
+pub fn get_submission_time(length: u64) -> u64 {
     return (length / 2).min(240);
 }
 
-fn fmt(st: SubmissionType, t: Track) -> String {
-    let submission = match st {
-        SubmissionType::Single => Submission::Single {
-            listen_type: String::from("single"),
-            payload: vec![Payload::Single {
-                listened_at: unix_timestamp(),
-                track_metadata: t,
-            }],
-        },
-        SubmissionType::PlayingNow => Submission::PlayingNow {
-            listen_type: String::from("playing_now"),
-            payload: Payload::PlayingNow { track_metadata: t },
-        },
-    };
+pub trait Submittable {
+    fn format(&self, _: Track) -> String;
+}
 
-    return match json::to_string(&submission) {
-        Ok(string) => string,
-        Err(_) => String::from(""),
-    };
+impl Submittable for SubmissionType {
+    fn format(&self, t: Track) -> String {
+        let submission = match &self {
+            SubmissionType::Single => Listen::Single {
+                payload: vec![Payload {
+                    listened_at: serde_json::json!(unix_timestamp()),
+                    track_metadata: t,
+                }],
+            },
+            SubmissionType::PlayingNow => Listen::PlayingNow {
+                payload: Payload {
+                    listened_at: Value::Null,
+                    track_metadata: t,
+                },
+            },
+        };
+
+        return match serde_json::to_string_pretty(&submission) {
+            Ok(string) => string,
+            Err(_) => String::from(""),
+        };
+    }
 }
 
 pub async fn submit(body: String) -> String {
@@ -121,5 +119,5 @@ fn main() {
         album: String::from("whenever you need somebody"),
     };
 
-    println!("{}", fmt(SubmissionType::PlayingNow, t))
+    println!("{}", SubmissionType::Single.format(t))
 }
