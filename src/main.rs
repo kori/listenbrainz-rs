@@ -37,11 +37,6 @@ pub enum Listen {
     PlayingNow { payload: Payload },
 }
 
-pub enum SubmissionType {
-    Single,
-    PlayingNow,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct Track {
     #[serde(rename = "artist_name")]
@@ -53,21 +48,21 @@ pub struct Track {
 }
 
 impl Track {
-    fn to_listen_type(self, st: SubmissionType) -> Listen {
-        return match st {
-            SubmissionType::Single => Listen::Single {
-                payload: vec![Payload {
-                    listened_at: serde_json::json!(unix_timestamp()),
-                    track_metadata: self,
-                }],
-            },
-            SubmissionType::PlayingNow => Listen::PlayingNow {
-                payload: Payload {
-                    // see skip_serializing_if @ Payload definition.
-                    // the playing_now payload *cannot* have this value.
-                    listened_at: Value::Null,
-                    track_metadata: self,
-                },
+    fn to_single(self) -> Listen {
+        return Listen::Single {
+            payload: vec![Payload {
+                listened_at: serde_json::json!(unix_timestamp()),
+                track_metadata: self,
+            }],
+        };
+    }
+    fn to_playing_now(self) -> Listen {
+        return Listen::PlayingNow {
+            payload: Payload {
+                // see skip_serializing_if @ Payload definition.
+                // the playing_now payload *cannot* have this value.
+                listened_at: Value::Null,
+                track_metadata: self,
             },
         };
     }
@@ -103,7 +98,7 @@ fn main() {
         album: String::from("whenever you need somebody"),
     };
 
-    match t.to_listen_type(SubmissionType::Single).to_json_string() {
+    match t.to_single().to_json_string() {
         Ok(s) => println!("{}", s),
         Err(e) => println!("{:?}", e),
     }
