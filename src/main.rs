@@ -1,5 +1,3 @@
-extern crate chrono;
-extern crate reqwest;
 extern crate serde;
 extern crate serde_json;
 
@@ -54,6 +52,33 @@ pub struct Track {
     album: String,
 }
 
+impl Track {
+    fn to_listen_type(self, st: SubmissionType) -> Listen {
+        return match st {
+            SubmissionType::Single => Listen::Single {
+                payload: vec![Payload {
+                    listened_at: serde_json::json!(unix_timestamp()),
+                    track_metadata: self,
+                }],
+            },
+            SubmissionType::PlayingNow => Listen::PlayingNow {
+                payload: Payload {
+                    // see skip_serializing_if @ Payload definition.
+                    // the playing_now payload *cannot* have this value.
+                    listened_at: Value::Null,
+                    track_metadata: self,
+                },
+            },
+        };
+    }
+}
+
+impl Listen {
+    fn to_json_string(self) -> Result<serde_json::Value, serde_json::Error> {
+        return serde_json::to_value(self);
+    }
+}
+
 // get current unix timestamp
 fn unix_timestamp() -> u64 {
     return SystemTime::now()
@@ -71,47 +96,6 @@ pub fn get_submission_time(length: u64) -> u64 {
     return (length / 2).min(240);
 }
 
-pub trait Submittable {
-    fn format(&self, _: Track) -> String;
-}
-
-impl Submittable for SubmissionType {
-    fn format(&self, t: Track) -> String {
-        let submission = match &self {
-            SubmissionType::Single => Listen::Single {
-                payload: vec![Payload {
-                    listened_at: serde_json::json!(unix_timestamp()),
-                    track_metadata: t,
-                }],
-            },
-            SubmissionType::PlayingNow => Listen::PlayingNow {
-                payload: Payload {
-                    listened_at: Value::Null,
-                    track_metadata: t,
-                },
-            },
-        };
-
-        return match serde_json::to_string_pretty(&submission) {
-            Ok(string) => string,
-            Err(_) => String::from(""),
-        };
-    }
-}
-
-pub async fn submit(body: String) -> String {
-    let client = reqwest::Client::new();
-    let response = client.post(API_ROOT_URL).json(&body).send().await;
-
-    return match response {
-        Ok(r) => match r.text().await {
-            Ok(t) => t,
-            Err(_) => String::from(""),
-        },
-        Err(_) => String::from(""),
-    };
-}
-
 fn main() {
     let t = Track {
         artist: String::from("rick astley"),
@@ -119,5 +103,8 @@ fn main() {
         album: String::from("whenever you need somebody"),
     };
 
-    println!("{}", SubmissionType::Single.format(t))
+    match t.to_listen_type(SubmissionType::Single).to_json_string() {
+        Ok(s) => println!("{}", s),
+        Err(e) => println!("{:?}", e),
+    }
 }
